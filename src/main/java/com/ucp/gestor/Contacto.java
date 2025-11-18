@@ -11,24 +11,35 @@ public class Contacto {
         this.email = email;
     }
 
-    public String getNombre() { return nombre; }
-    public void setNombre(String nombre) { this.nombre = nombre; }
+    public String getNombre() {
+        return nombre;
+    }
 
-    public String getEmail() { return email; }
-    public void setEmail(String email) { this.email = email; }
+    public void setNombre(String nombre) {
+        this.nombre = nombre;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-
-        Contacto contacto = (Contacto) o;
-        return Objects.equals(email.toLowerCase(), contacto.email.toLowerCase());
+        // Sin if: usamos instanceof + lógica booleana
+        return (o instanceof Contacto)
+                && email != null
+                && ((Contacto) o).email != null
+                && email.equalsIgnoreCase(((Contacto) o).email);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(email.toLowerCase());
+        String correo = email == null ? "" : email.toLowerCase();
+        return Objects.hash(correo);
     }
 
     @Override

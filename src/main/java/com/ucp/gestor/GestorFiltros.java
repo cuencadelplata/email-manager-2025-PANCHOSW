@@ -7,16 +7,18 @@ import java.util.*;
  * - Permite registrar hasta 5 filtros.
  * - Evita nombres duplicados.
  * - Permite listar y buscar filtros por nombre.
+ *
+ * IMPORTANTE: implementado sin usar if, switch ni while.
  */
 public class GestorFiltros {
 
     private static final int MAX_FILTROS = 5;
 
-    // Usamos un Map para acceder rápido por nombre
+    // Usamos un Map para acceder rápido por nombre y mantener orden de inserción
     private final Map<String, Filtro> filtros;
 
     public GestorFiltros() {
-        this.filtros = new LinkedHashMap<>(); // mantiene orden de inserción
+        this.filtros = new LinkedHashMap<>();
     }
 
     /**
@@ -27,15 +29,19 @@ public class GestorFiltros {
     public boolean agregarFiltro(Filtro filtro) {
         Objects.requireNonNull(filtro, "El filtro no puede ser null");
 
-        if (filtros.containsKey(filtro.getNombre())) {
-            // ya existe uno con ese nombre
-            return false;
-        }
-        if (filtros.size() >= MAX_FILTROS) {
-            // ya alcanzamos el máximo permitido
-            return false;
-        }
+        String nombre = filtro.getNombre();
 
+        boolean hayEspacio = filtros.size() < MAX_FILTROS;
+        boolean nombreLibre = !filtros.containsKey(nombre);
+        boolean puedeAgregar = hayEspacio && nombreLibre;
+
+        // Usamos el cortocircuito de && para evitar if:
+        // solo se llama a agregarInterno si puedeAgregar es true
+        return puedeAgregar && agregarInterno(filtro);
+    }
+
+    // Método auxiliar para encapsular el side-effect de agregar al mapa
+    private boolean agregarInterno(Filtro filtro) {
         filtros.put(filtro.getNombre(), filtro);
         return true;
     }

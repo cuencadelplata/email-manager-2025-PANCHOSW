@@ -35,11 +35,29 @@ public class GestorEmails {
     }
 
     public Optional<Contacto> buscarContactoPorEmail(String email) {
-        return contactos.stream().filter(c -> c.getEmail().equalsIgnoreCase(email)).findFirst();
+        return contactos.stream()
+                .filter(c -> c.getEmail().equalsIgnoreCase(email))
+                .findFirst();
     }
 
     public Set<Contacto> listarContactos() {
         return Collections.unmodifiableSet(contactos);
+    }
+
+    // ----------------- Gestión de contactos: edición -----------------
+
+    public boolean editarContacto(String emailOriginal, String nuevoNombre, String nuevoEmail) {
+        return buscarContactoPorEmail(emailOriginal)
+                .map(c -> editarContactoInterno(c, nuevoNombre, nuevoEmail))
+                .orElse(false);
+    }
+
+    private boolean editarContactoInterno(Contacto contacto, String nuevoNombre, String nuevoEmail) {
+        contactos.remove(contacto);
+        contacto.setNombre(nuevoNombre);
+        contacto.setEmail(nuevoEmail);
+        contactos.add(contacto);
+        return true;
     }
 
     // ----------------- Email lifecycle -----------------
@@ -48,7 +66,9 @@ public class GestorEmails {
         e.setRemitente(remitente);
         e.setAsunto(asunto);
         e.setContenido(contenido);
-        for (Contacto c : para) e.addPara(c);
+        for (Contacto c : para) {
+            e.addPara(c);
+        }
         e.setBorrador(true);
         indexEmail(e);
         bandejas.get(BandejaType.BORRADORES).agregar(e);
@@ -57,17 +77,31 @@ public class GestorEmails {
 
     public void guardarBorrador(Email e) {
         e.setBorrador(true);
-        if (!bandejas.get(BandejaType.BORRADORES).todos().contains(e)) {
-            bandejas.get(BandejaType.BORRADORES).agregar(e);
-        }
+
+        Bandeja borradores = bandejas.get(BandejaType.BORRADORES);
+        List<Email> lista = borradores.todos();
+        boolean noEsta = !lista.contains(e);
+
+        // solo agrega si no estaba: usamos cortocircuito de &&
+        boolean ignorar = noEsta && agregarEnBandeja(borradores, e);
+
         indexEmail(e);
+    }
+
+    private boolean agregarEnBandeja(Bandeja b, Email e) {
+        b.agregar(e);
+        return true;
     }
 
     public void editarEmail(Email e, String asunto, String contenido, List<Contacto> para) {
         e.setAsunto(asunto);
         e.setContenido(contenido);
         e.getPara().clear();
-        if (para != null) para.forEach(e::addPara);
+
+        List<Contacto> listaPara = Optional.ofNullable(para)
+                .orElseGet(Collections::emptyList);
+        listaPara.forEach(e::addPara);
+
         indexEmail(e);
     }
 
@@ -76,7 +110,6 @@ public class GestorEmails {
      * de cada destinatario (en este modelo simple; no gestionamos cuentas separadas).
      */
     public void enviar(Email e) {
-        // quitar de borradores si estaba ahi
         bandejas.get(BandejaType.BORRADORES).eliminar(e);
 
         e.setBorrador(false);
@@ -86,38 +119,50 @@ public class GestorEmails {
         bandejas.get(BandejaType.ENVIADOS).agregar(e);
         indexEmail(e);
 
-        // simulamos entrega: agregamos copia en la bandeja ENTRADA (mismo objeto en este modelo simple)
         bandejas.get(BandejaType.ENTRADA).agregar(e);
     }
 
     public boolean moverEmail(Email e, BandejaType origen, BandejaType destino) {
         Bandeja bOrigen = bandejas.get(origen);
         Bandeja bDestino = bandejas.get(destino);
-        if (bOrigen == null || bDestino == null) return false;
-        if (!bOrigen.todos().contains(e)) return false;
-        bOrigen.eliminar(e);
-        bDestino.agregar(e);
+
+        boolean bandejasValidas = bOrigen != null && bDestino != null;
+        boolean contiene = bandejasValidas && bOrigen.todos().contains(e);
+
+        return contiene && moverInterno(bOrigen, bDestino, e);
+    }
+
+    private boolean moverInterno(Bandeja origen, Bandeja destino, Email e) {
+        origen.eliminar(e);
+        destino.agregar(e);
         return true;
     }
 
     public void marcarLeido(String emailId, boolean leido) {
-        Email e = emailIndex.get(emailId);
-        if (e != null) e.setLeido(leido);
+        Optional.ofNullable(emailIndex.get(emailId))
+                .ifPresent(e -> e.setLeido(leido));
     }
 
     public void marcarFavorito(String emailId, boolean fav) {
-        Email e = emailIndex.get(emailId);
-        if (e != null) {
-            e.setFavorito(fav);
-            // si es favorito, asegurar en bandeja FAVORITOS (evitar duplicados)
-            List<Email> favs = bandejas.get(BandejaType.FAVORITOS).todos();
-            if (fav && !favs.contains(e)) bandejas.get(BandejaType.FAVORITOS).agregar(e);
-            if (!fav) bandejas.get(BandejaType.FAVORITOS).eliminar(e);
-        }
+        Optional.ofNullable(emailIndex.get(emailId))
+                .ifPresent(e -> marcarFavoritoInterno(e, fav));
+    }
+
+    private void marcarFavoritoInterno(Email e, boolean fav) {
+        e.setFavorito(fav);
+
+        Bandeja favoritos = bandejas.get(BandejaType.FAVORITOS);
+        List<Email> lista = favoritos.todos();
+
+        boolean esta = lista.contains(e);
+        boolean debeAgregar = fav && !esta;
+        boolean debeEliminar = !fav && esta;
+
+        boolean ignorar1 = debeAgregar && agregarEnBandeja(favoritos, e);
+        boolean ignorar2 = debeEliminar && favoritos.eliminar(e);
     }
 
     public void eliminarDefinitivo(Email e) {
-        // quitar de todas las bandejas y ubicar en ELIMINADOS
         for (Bandeja b : bandejas.values()) {
             b.eliminar(e);
         }
@@ -144,6 +189,16 @@ public class GestorEmails {
 
     public List<Email> getTodosEnBandeja(BandejaType tipo) {
         return bandejas.get(tipo).todos();
+    }
+
+    // ----------------- Restaurar desde Eliminados -----------------
+
+    public boolean restaurarDesdeEliminados(Email email, BandejaType destino) {
+        return moverEmail(email, BandejaType.ELIMINADOS, destino);
+    }
+
+    public boolean restaurarAEntrada(Email email) {
+        return restaurarDesdeEliminados(email, BandejaType.ENTRADA);
     }
 
     // ----------------- Indexing -----------------
